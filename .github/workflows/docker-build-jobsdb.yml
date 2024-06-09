@@ -27,8 +27,8 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Build the Docker image
-      run: docker build ./job-ad-crawler-jobsdb/ --file Dockerfile --tag job-ad-crawler-jobsdb:$(date +%s)
+    # - name: Build the Docker image
+    #   run: docker build ./job-ad-crawler-jobsdb/ --file Dockerfile --tag job-ad-crawler-jobsdb:$(date +%s)
     
     # Set up BuildKit Docker container builder to be able to build
     # multi-platform images and export cache
