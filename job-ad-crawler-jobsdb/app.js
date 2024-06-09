@@ -260,9 +260,13 @@ async function get_exsited_job_id_list(jobs, mongo_col) {
 
     let insert_result = await mongo_col.insertMany(reversed_jobs, { ordered: true });
     console.log(`${insert_result.upsertedCount} documents were inserted`);
+  } catch (error) {
+    console.error(error);
   } finally {
     console.log("close mongo client");
-    await mongo_client.close();
+    if (mongo_client) {
+      await mongo_client.close();
+    }
   }
   console.log("end at " + get_now());
   console.timeEnd("executed_time");

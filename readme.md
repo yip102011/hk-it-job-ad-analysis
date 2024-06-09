@@ -2,7 +2,7 @@
 
 ```
 docker build . -t job-ad-crawler-jobsdb -t job-ad-crawler-jobsdb:1.0.1
-docker run job-ad-crawler-jobsdb:1.0.1
+docker run -e MONGO_DB_URL="mongodb://172.17.0.2:27017/jobsdb_ad" job-ad-crawler-jobsdb:1.0.1
 ```
 
 ## mongodb
