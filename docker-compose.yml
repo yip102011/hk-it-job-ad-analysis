@@ -1,0 +1,18 @@
+version: '3.9'
+services:
+  app:
+    build:
+      context: ./job-ad-crawler-jobsdb
+      dockerfile: ./job-ad-crawler-jobsdb/Dockerfile
+    ports:
+      - '8000:8000'
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_DB_URL=mongodb://mongo:27017/jobsdb
+  mongo:
+    image: mongo:7.0.11
+    volumes:
+      - mongo-data:/data/db
+volumes:
+  mongo-data:

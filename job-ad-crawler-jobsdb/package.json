@@ -1,0 +1,16 @@
+{
+  "name": "job-ad-crawler-jobsdb",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "author": "",
+  "license": "ISC",
+  "scripts": {
+    "start": "node --env-file=.env app.js",
+    "poc": "node --env-file=.env poc.js"
+  },
+  "dependencies": {
+    "jsdom": "^24.1.0",
+    "mongodb": "^6.7.0"
+  }
+}
