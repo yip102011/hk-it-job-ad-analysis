@@ -161,7 +161,7 @@ async function extract_job_list(html_string) {
       jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
     })();
     job_detail_promise_list.push(job_detail_promise);
-    await delay(100);
+    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 300);
   }
 
   // await job_detail_promise_list
@@ -227,6 +227,7 @@ async function get_exsited_job_id_list(jobs, mongo_col) {
   let exsited_job_id_list = exsited_job_list.map((j) => j.job_id);
   return exsited_job_id_list;
 }
+
 (async () => {
   console.time("executed_time");
   console.log("start at " + get_now());
