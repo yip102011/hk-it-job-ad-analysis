@@ -1,7 +1,8 @@
-## build docker image
+## docker command
 
 ```
-docker build . -t job-ad-crawler-jobsdb -t job-ad-crawler-jobsdb:0.0.1
+docker build . -t job-ad-crawler-jobsdb -t job-ad-crawler-jobsdb:1.0.1
+docker run job-ad-crawler-jobsdb:1.0.1
 ```
 
 ## mongodb
