@@ -1,17 +1,20 @@
 const jsdom = require("jsdom");
 const { JSDOM } = jsdom;
-const { MongoClient } = require("mongodb");
+// const { data_helper } = require("./data_helper_mongo");
+const { data_helper } = require("./data_helper_sqlite");
 
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
+
 function get_now() {
   let now = new Date();
   let now_str = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().replace(/[TZ]/g, " ");
   return now_str;
 }
+
 function calculate_datetime(time_text) {
   if (!time_text) {
     return null;
@@ -68,22 +71,22 @@ async function save_jobs_to_file(jobs) {
   let json_string = JSON.stringify(jobs, null, 2);
   await fs.writeFile("jobs.json", json_string, "utf-8");
 }
-async function init_mongo_client() {
-  const url = process.env.MONGO_DB_URL;
-  console.log("mongodb url: " + url);
+// async function init_mongo_client() {
+//   const url = process.env.MONGO_DB_URL;
+//   console.log("mongodb url: " + url);
 
-  const db_name = process.env.MONGO_DB_NAME;
-  console.log("mongodb db name: " + db_name);
+//   const db_name = process.env.MONGO_DB_NAME;
+//   console.log("mongodb db name: " + db_name);
 
-  let col_name = process.env.MONGO_COL_NAME;
-  console.log("mongodb collection name: " + col_name);
+//   let col_name = process.env.MONGO_COL_NAME;
+//   console.log("mongodb collection name: " + col_name);
 
-  const mongo_client = new MongoClient(url, {});
-  await mongo_client.connect();
-  const mongo_db = mongo_client.db(db_name);
-  const mongo_col = mongo_db.collection(col_name);
-  return [mongo_client, mongo_db, mongo_col];
-}
+//   const mongo_client = new MongoClient(url, {});
+//   await mongo_client.connect();
+//   const mongo_db = mongo_client.db(db_name);
+//   const mongo_col = mongo_db.collection(col_name);``
+//   return [mongo_client, mongo_db, mongo_col];
+// }
 async function extract_job_list(html_string) {
   let dom = new JSDOM(html_string);
   let article_list = dom.window.document.querySelectorAll("article[data-job-id]");
@@ -150,23 +153,6 @@ async function extract_job_list(html_string) {
     jobs.push(job);
   }
 
-  // loop job and fetch detail
-  let job_detail_promise_list = [];
-  for (let i = 0; i < jobs.length; i++) {
-    let job_detail_promise = (async () => {
-      let url = "https://hk.jobsdb.com" + jobs[i].job_link;
-      let [job_detail_html, contact] = await fetch_job_detail(url);
-      jobs[i].job_detail_html = job_detail_html;
-      jobs[i].contact = contact;
-      jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
-    })();
-    job_detail_promise_list.push(job_detail_promise);
-    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 1000);
-  }
-
-  // await job_detail_promise_list
-  await Promise.all(job_detail_promise_list);
-
   return jobs;
 }
 async function fetch_job_detail(url) {
@@ -214,59 +200,67 @@ async function fetch_job_list(max_fetch_page, last_job_id) {
   }
   return full_job_list;
 }
-async function get_last_job_id(mongo_col) {
-  let result = await mongo_col.find({}).sort({ job_id: -1 }).limit(1);
-  let docs = await result.toArray();
-  let last_job_id = docs?.[0]?.job_id;
-  return last_job_id || 0;
-}
-async function get_exsited_job_id_list(jobs, mongo_col) {
-  let job_id_array = jobs.map((job) => job.job_id);
-  let result = mongo_col.find({ job_id: { $in: job_id_array } }).project({ job_id: 1, _id: 0 });
-  let exsited_job_list = await result.toArray();
-  let exsited_job_id_list = exsited_job_list.map((j) => j.job_id);
-  return exsited_job_id_list;
+
+async function fetch_job_list_detail(jobs) {
+  // loop job and fetch detail
+  let job_detail_promise_list = [];
+  for (let i = 0; i < jobs.length; i++) {
+    let job_detail_promise = (async () => {
+      let url = "https://hk.jobsdb.com" + jobs[i].job_link;
+      let [job_detail_html, contact] = await fetch_job_detail(url);
+      jobs[i].job_detail_html = job_detail_html;
+      jobs[i].contact = contact;
+      jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
+    })();
+    job_detail_promise_list.push(job_detail_promise);
+    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 1000);
+  }
+
+  // await job_detail_promise_list
+  await Promise.all(job_detail_promise_list);
+  return jobs;
 }
 
-(async () => {
+(async function main() {
   console.time("executed_time");
   console.log("start at " + get_now());
 
   try {
-    var [mongo_client, mongo_db, mongo_col] = await init_mongo_client();
-    let last_job_id = await get_last_job_id(mongo_col);
+    await data_helper.init_db_client();
+
+    let last_job_id = await data_helper.get_last_job_id();
     console.log("last_job_id: " + last_job_id);
 
     let max_fetch_page = process.env.MAX_FETCH_PAGE || 10;
     console.log("max_fetch_page: " + max_fetch_page);
 
-    let jobs = await fetch_job_list(max_fetch_page, last_job_id);
-    console.log("fetched jobs length: " + jobs.length);
+    let fetched_jobs = await fetch_job_list(max_fetch_page, last_job_id);
+    console.log("fetched jobs length: " + fetched_jobs.length);
 
-    if (jobs.length == 0) {
-      console.log("no new jobs, exit");
+    let existed_job_id_list = await data_helper.get_existed_job_id_list(fetched_jobs);
+
+    let new_jobs = fetched_jobs.filter((job) => existed_job_id_list.includes(job.job_id) == false);
+    console.log("new jobs length: " + fetched_jobs.length);
+    if (new_jobs.length == 0) {
       return;
     }
 
-    let exsited_job_id_list = await get_exsited_job_id_list(jobs, mongo_col);
-    jobs = jobs.filter((job) => !exsited_job_id_list.includes(job.job_id));
-    console.log("filtered jobs length: " + jobs.length);
+    console.log("fetch all detail");
+    let new_jobs_with_detail = await fetch_job_list_detail(new_jobs);
 
-    if (jobs.length == 0) {
-      console.log("no new jobs, exit");
-      return;
-    }
+    console.log("reverse jobs list");
+    let reversed_jobs = new_jobs_with_detail.reverse();
 
-    let reversed_jobs = jobs.reverse();
+    console.log("insert many into database");
+    let changed = await data_helper.insert_many(reversed_jobs);
 
-    let insert_result = await mongo_col.insertMany(reversed_jobs, { ordered: true });
-    console.log(`${insert_result.upsertedCount} documents were inserted`);
+    console.log(`${changed} jobs were inserted`);
   } catch (error) {
     console.error(error);
   } finally {
-    console.log("close mongo client");
-    if (mongo_client) {
-      await mongo_client.close();
+    console.log("close database client");
+    if (data_helper.close) {
+      await data_helper.close();
     }
   }
   console.log("end at " + get_now());

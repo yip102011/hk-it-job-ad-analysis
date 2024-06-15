@@ -129,5 +129,6 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-jobs.json
 .vs/
+*.db
+jobs.json
