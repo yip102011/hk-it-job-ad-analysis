@@ -130,5 +130,6 @@ dist
 .pnp.*
 
 .vs/
+.vscode/
 *.db
 jobs.json
