@@ -161,7 +161,7 @@ async function extract_job_list(html_string) {
       jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
     })();
     job_detail_promise_list.push(job_detail_promise);
-    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 300);
+    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 1000);
   }
 
   // await job_detail_promise_list
