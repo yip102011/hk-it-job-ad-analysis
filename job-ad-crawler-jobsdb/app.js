@@ -256,6 +256,6 @@ async function fetch_job_list_detail(jobs) {
     logger.info("close database client");
     await data_helper?.close();
   }
-  let during_ms = (performance.now() - start_ms).toFixed(3);
+  let during_ms = ((performance.now() - start_ms) / 1000).toFixed(2);
   logger.info("end at " + get_now() + ", during " + during_ms + "ms");
 })();
