@@ -58,7 +58,7 @@ function extract_contact(job_detail_ele) {
   return contact;
 }
 function decode_protected_email(href) {
-  var href = "/cdn-cgi/l/email-protection#67060b0b02094917080809270a06091708100215001504490f0c";
+  // var href = "/cdn-cgi/l/email-protection#67060b0b02094917080809270a06091708100215001504490f0c";
   var c = "/cdn-cgi/l/email-protection#".length;
   var a = parseInt(href.substr(c, 2), 16);
   var i = c + 2;
@@ -232,7 +232,7 @@ async function fetch_job_list_detail(jobs) {
     let existed_job_id_list = await data_helper.get_existed_job_id_list(fetched_jobs);
 
     let new_jobs = fetched_jobs.filter((job) => existed_job_id_list.includes(job.job_id) == false);
-    logger.info("new jobs length: " + fetched_jobs.length);
+    logger.info("new jobs length: " + new_jobs.length);
     if (new_jobs.length == 0) {
       return;
     }
