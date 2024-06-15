@@ -215,7 +215,7 @@ async function fetch_job_list_detail(jobs) {
 (async function main() {
   let start_ms = performance.now();
   logger.info("start at " + get_now());
-  logger.info("APP_ENV: " + process.env.APP_ENV)
+  logger.info("APP_ENV: " + process.env.APP_ENV);
 
   try {
     await data_helper.init_db_client();
@@ -255,7 +255,7 @@ async function fetch_job_list_detail(jobs) {
   } finally {
     logger.info("close database client");
     await data_helper?.close();
+    let during_ms = ((performance.now() - start_ms) / 1000).toFixed(2);
+    logger.info("end at " + get_now() + ", during " + during_ms + "ms");
   }
-  let during_ms = ((performance.now() - start_ms) / 1000).toFixed(2);
-  logger.info("end at " + get_now() + ", during " + during_ms + "ms");
 })();
