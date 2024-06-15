@@ -7,10 +7,13 @@
   "license": "ISC",
   "scripts": {
     "start": "node --env-file=.env app.js",
-    "poc": "node --env-file=.env poc.js"
+    "poc": "node --env-file=.env poc.js",
+    "prod": "node --env-file=.env.prod.local app.js"
   },
   "dependencies": {
+    "dotenv": "^16.4.5",
     "jsdom": "^24.1.0",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "winston": "^3.13.0"
   }
 }

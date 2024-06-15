@@ -2,19 +2,22 @@ const jsdom = require("jsdom");
 const { JSDOM } = jsdom;
 // const { data_helper } = require("./data_helper_mongo");
 const { data_helper } = require("./data_helper_sqlite");
+const { logger } = require("./logger_helper");
 
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
-
-function get_now() {
+function get_now(include_time = true) {
   let now = new Date();
-  let now_str = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().replace(/[TZ]/g, " ");
-  return now_str;
+  let iso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString();
+  if (include_time) {
+    return iso.replace(/[TZ]/g, " ");
+  } else {
+    return iso.substring(0, 10);
+  }
 }
-
 function calculate_datetime(time_text) {
   if (!time_text) {
     return null;
@@ -67,26 +70,14 @@ function decode_protected_email(href) {
   return str;
 }
 async function save_jobs_to_file(jobs) {
-  const fs = require("fs").promises;
-  let json_string = JSON.stringify(jobs, null, 2);
-  await fs.writeFile("jobs.json", json_string, "utf-8");
+  if (!process.env.OUTPUT_FOLDER) logger.warn("env var OUTPUT_FOLDER is not defined");
+  let path = process.env.OUTPUT_FOLDER;
+  try {
+    let fs = require("fs").promises;
+    let json_string = JSON.stringify(jobs, null, 2);
+    await fs.writeFile(`${path}jobsdb_${get_now()}.json`, json_string, "utf-8");
+  } catch (error) {}
 }
-// async function init_mongo_client() {
-//   const url = process.env.MONGO_DB_URL;
-//   console.log("mongodb url: " + url);
-
-//   const db_name = process.env.MONGO_DB_NAME;
-//   console.log("mongodb db name: " + db_name);
-
-//   let col_name = process.env.MONGO_COL_NAME;
-//   console.log("mongodb collection name: " + col_name);
-
-//   const mongo_client = new MongoClient(url, {});
-//   await mongo_client.connect();
-//   const mongo_db = mongo_client.db(db_name);
-//   const mongo_col = mongo_db.collection(col_name);``
-//   return [mongo_client, mongo_db, mongo_col];
-// }
 async function extract_job_list(html_string) {
   let dom = new JSDOM(html_string);
   let article_list = dom.window.document.querySelectorAll("article[data-job-id]");
@@ -178,12 +169,12 @@ async function fetch_job_detail(url) {
 async function fetch_job_list(max_fetch_page, last_job_id) {
   let full_job_list = [];
   for (let page = 1; page <= max_fetch_page; page++) {
-    console.log("fetching page " + page);
+    logger.info("fetching page " + page);
 
     let url = `https://hk.jobsdb.com/jobs-in-information-communication-technology?page=${page}&sortmode=ListedDate`;
     let response = await fetch(url);
     if (response.status != 200) {
-      console.log("fetching page " + page + " failed, status:" + response.status);
+      logger.info("fetching page " + page + " failed, status:" + response.status);
       break;
     }
 
@@ -194,7 +185,7 @@ async function fetch_job_list(max_fetch_page, last_job_id) {
     // if jobs list included last_job_id, break
     let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
     if (existed_job) {
-      console.log("stop at page " + page + ", job_id exsited - " + existed_job.job_id);
+      logger.info("stop at page " + page + ", job_id exsited - " + existed_job.job_id);
       break;
     }
   }
@@ -222,47 +213,49 @@ async function fetch_job_list_detail(jobs) {
 }
 
 (async function main() {
-  console.time("executed_time");
-  console.log("start at " + get_now());
+  let start_ms = performance.now();
+  logger.info("start at " + get_now());
+  logger.info("APP_ENV: " + process.env.APP_ENV)
 
   try {
     await data_helper.init_db_client();
 
     let last_job_id = await data_helper.get_last_job_id();
-    console.log("last_job_id: " + last_job_id);
+    logger.info("last_job_id: " + last_job_id);
 
     let max_fetch_page = process.env.MAX_FETCH_PAGE || 10;
-    console.log("max_fetch_page: " + max_fetch_page);
+    logger.info("max_fetch_page: " + max_fetch_page);
 
     let fetched_jobs = await fetch_job_list(max_fetch_page, last_job_id);
-    console.log("fetched jobs length: " + fetched_jobs.length);
+    logger.info("fetched jobs length: " + fetched_jobs.length);
 
     let existed_job_id_list = await data_helper.get_existed_job_id_list(fetched_jobs);
 
     let new_jobs = fetched_jobs.filter((job) => existed_job_id_list.includes(job.job_id) == false);
-    console.log("new jobs length: " + fetched_jobs.length);
+    logger.info("new jobs length: " + fetched_jobs.length);
     if (new_jobs.length == 0) {
       return;
     }
 
-    console.log("fetch all detail");
     let new_jobs_with_detail = await fetch_job_list_detail(new_jobs);
+    logger.info("fetched all detail");
 
-    console.log("reverse jobs list");
+    logger.info("reverse jobs list");
     let reversed_jobs = new_jobs_with_detail.reverse();
 
-    console.log("insert many into database");
+    logger.info("save jobs to file");
+    await save_jobs_to_file(reversed_jobs);
+
+    logger.info("insert many into database");
     let changed = await data_helper.insert_many(reversed_jobs);
 
-    console.log(`${changed} jobs were inserted`);
+    logger.info(`${changed} jobs were inserted`);
   } catch (error) {
-    console.error(error);
+    logger.error("program error", error);
   } finally {
-    console.log("close database client");
-    if (data_helper.close) {
-      await data_helper.close();
-    }
+    logger.info("close database client");
+    await data_helper?.close();
   }
-  console.log("end at " + get_now());
-  console.timeEnd("executed_time");
+  let during_ms = (performance.now() - start_ms).toFixed(3);
+  logger.info("end at " + get_now() + ", during " + during_ms + "ms");
 })();

@@ -1,5 +1,7 @@
 "use strict";
 const { MongoClient } = require("mongodb");
+const { logger } = require("./logger_helper");
+
 class data_helper_mongo {
   async init_db_client() {
     try {
@@ -7,9 +9,9 @@ class data_helper_mongo {
       let db_name = process.env.MONGO_DB_NAME;
       let col_name = process.env.MONGO_COL_NAME;
 
-      console.log("mongodb url: " + url);
-      console.log("mongodb db name: " + db_name);
-      console.log("mongodb collection name: " + col_name);
+      logger.info("mongodb url: " + url);
+      logger.info("mongodb db name: " + db_name);
+      logger.info("mongodb collection name: " + col_name);
 
       let mongo_client = new MongoClient(url, {});
       await mongo_client.connect();
@@ -38,15 +40,10 @@ class data_helper_mongo {
     return exsited_job_id_list;
   }
   async insert_many(jobs) {
-    try {
-      await this.col.insertMany(jobs, { ordered: true });
-    } catch (error) {
-      console.error("Error insert jobs to MongoDB.");
-      throw error;
-    }
+    await this.col.insertMany(jobs, { ordered: true });
   }
   async close() {
-    await this.client.close();
+    await this.client?.close();
   }
 }
 

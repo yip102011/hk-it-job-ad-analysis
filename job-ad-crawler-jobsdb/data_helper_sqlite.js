@@ -2,8 +2,12 @@
 const sqlite3 = require("sqlite3").verbose();
 class data_helper_sqlite {
   async init_db_client() {
-    if (!process.env.SQLITE_DB_PATH) console.error("env var SQLITE_DB_PATH is not defined");
-    this.db = new sqlite3.Database(process.env.SQLITE_DB_PATH);
+    let db_path = process.env.OUTPUT_SQLITE_DB_FILE;
+    if (!db_path) {
+      throw new Error("env var OUTPUT_SQLITE_DB_FILE is not defined");
+    }
+
+    this.db = new sqlite3.Database(db_path);
     await this.runAsync(`
       CREATE TABLE IF NOT EXISTS jobsdb_ad (
         job_id INTEGER PRIMARY KEY DESC,
@@ -116,7 +120,7 @@ class data_helper_sqlite {
     });
   }
   async close() {
-    this.db.close();
+    this.db?.close();
   }
 }
 
