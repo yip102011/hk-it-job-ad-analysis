@@ -257,5 +257,6 @@ async function fetch_job_list_detail(jobs) {
     await data_helper?.close();
     let during_s = ((performance.now() - start_ms) / 1000).toFixed(2);
     logger.info("end at " + get_now() + ", during " + during_s + "s");
+    logger.info("----------------------------------------");
   }
 })();
