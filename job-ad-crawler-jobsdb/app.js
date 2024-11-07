@@ -4,6 +4,30 @@ const { JSDOM } = jsdom;
 const { data_helper } = require("./data_helper_sqlite");
 const { logger } = require("./logger_helper");
 
+const http_headers = {
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+  "accept-language": "zh-TW,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,zh-HK;q=0.5",
+  "cache-control": "max-age=0",
+  priority: "u=0, i",
+  "sec-ch-ua": '"Chromium";v="130", "Microsoft Edge";v="130", "Not?A_Brand";v="99"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "same-origin",
+  "sec-fetch-user": "?1",
+  "upgrade-insecure-requests": "1",
+};
+
+const fetch_options = {
+  headers: http_headers,
+  referrerPolicy: "no-referrer-when-downgrade",
+  body: null,
+  method: "GET",
+  mode: "cors",
+  credentials: "include",
+};
+
 function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -147,12 +171,12 @@ async function extract_job_list(html_string) {
   return jobs;
 }
 async function fetch_job_detail(url) {
-  let response = await fetch(url);
+  let response = await fetch(url, fetch_options);
   let html_string = await response.text();
 
   // try two time
   if (response.status != 200) {
-    response = await fetch(url);
+    response = await fetch(url, fetch_options);
     if (response.status != 200) {
       return [null, null];
     }
@@ -172,7 +196,7 @@ async function fetch_job_list(max_fetch_page, last_job_id) {
     logger.info("fetching page " + page);
 
     let url = `https://hk.jobsdb.com/jobs-in-information-communication-technology?page=${page}&sortmode=ListedDate`;
-    let response = await fetch(url);
+    let response = await fetch(url, fetch_options);
     if (response.status != 200) {
       logger.info("fetching page " + page + " failed, status:" + response.status);
       break;
@@ -186,7 +210,7 @@ async function fetch_job_list(max_fetch_page, last_job_id) {
     let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
     if (existed_job) {
       logger.info("stop at page " + page + ", job_id exsited - " + existed_job.job_id);
-      break;
+      // break;
     }
   }
   return full_job_list;
@@ -210,6 +234,14 @@ async function fetch_job_list_detail(jobs) {
   // await job_detail_promise_list
   await Promise.all(job_detail_promise_list);
   return jobs;
+}
+
+function split_array(arr, size) {
+  const result = [];
+  for (let i = 0; i < arr.length; i += size) {
+    result.push(arr.slice(i, i + size));
+  }
+  return result;
 }
 
 (async function main() {
@@ -247,9 +279,14 @@ async function fetch_job_list_detail(jobs) {
     await save_jobs_to_file(reversed_jobs);
 
     logger.info("insert many into database");
-    let changed = await data_helper.insert_many(reversed_jobs);
 
-    logger.info(`${changed} jobs were inserted`);
+    const MAX_INSERT_SIZE = 30;
+    const inserted = 0;
+    split_array(reversed_jobs, MAX_INSERT_SIZE).forEach(async (jobs) => {
+      inserted += await data_helper.insert_many(jobs);
+    });
+    
+    logger.info(`${inserted} jobs were inserted`);
   } catch (error) {
     logger.error("program error", error);
   } finally {
