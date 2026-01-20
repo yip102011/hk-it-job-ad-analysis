@@ -1,5 +1,5 @@
-"use strict";
-const sqlite3 = require("sqlite3").verbose();
+import sqlite3 from "sqlite3";
+
 class data_helper_sqlite {
   async init_db_client() {
     let db_path = process.env.OUTPUT_SQLITE_DB_FILE;
@@ -124,4 +124,4 @@ class data_helper_sqlite {
   }
 }
 
-exports.data_helper = new data_helper_sqlite();
+export const data_helper = new data_helper_sqlite();

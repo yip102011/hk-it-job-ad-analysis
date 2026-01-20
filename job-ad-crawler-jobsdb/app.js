@@ -1,9 +1,10 @@
-const jsdom = require("jsdom");
-const { JSDOM } = jsdom;
-// const { data_helper } = require("./data_helper_mongo");
-const { data_helper } = require("./data_helper_sqlite");
-const { logger } = require("./logger_helper");
-const { chromium } = require("playwright");
+import jsdom from "jsdom";
+import { JSDOM } from "jsdom";
+// import { data_helper } from "./data_helper_mongo.js";
+import { data_helper } from "./data_helper_sqlite.js";
+import { logger } from "./logger_helper.js";
+import { chromium } from "playwright";
+import fs from "fs/promises";
 
 const http_headers = {
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
@@ -83,11 +84,11 @@ function decode_protected_email(href) {
   str = decodeURIComponent(escape(str));
   return str;
 }
+
 async function save_jobs_to_file(jobs) {
   if (!process.env.OUTPUT_FOLDER) logger.warn("env var OUTPUT_FOLDER is not defined");
   let path = process.env.OUTPUT_FOLDER;
   try {
-    let fs = require("fs").promises;
     let json_string = JSON.stringify(jobs, null, 2);
     await fs.writeFile(`${path}jobsdb_${get_now()}.json`, json_string, "utf-8");
   } catch (error) {}
@@ -214,11 +215,11 @@ async function fetch_job_list(browser, max_fetch_page, last_job_id) {
         full_job_list = full_job_list.concat(jobs_list);
 
         // if jobs list included last_job_id, break
-        // let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
-        // if (existed_job) {
-        //   logger.info("stop at page " + pageNum + ", job_id exsited - " + existed_job.job_id);
-        //   // break;
-        // }
+        let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
+        if (existed_job) {
+          logger.info("stop at page " + pageNum + ", job_id exsited - " + existed_job.job_id);
+          // break;
+        }
         await page.waitForTimeout(2000);
       } catch (pageError) {
         logger.error("Error on page " + pageNum + ": " + pageError.message);
@@ -304,7 +305,7 @@ function split_array(arr, size) {
     const MAX_INSERT_SIZE = 30;
     const inserted = 0;
     split_array(reversed_jobs, MAX_INSERT_SIZE).forEach(async (jobs) => {
-      inserted += await data_helper.insert_many(jobs);
+      inserted = inserted + await data_helper.insert_many(jobs);
     });
     
     logger.info(`${inserted} jobs were inserted`);

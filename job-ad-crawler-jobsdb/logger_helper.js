@@ -1,5 +1,12 @@
-const winston = require("winston");
-const app_name = require(`${__dirname}/package.json`).name;
+import winston from "winston";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// For ES modules, we'll hardcode the app name or read it differently
+const app_name = "job-ad-crawler-jobsdb";
 const log_folder = process.env.OUTPUT_LOG_FOLDER;
 
 function get_now(include_time = true) {
@@ -27,4 +34,4 @@ logger.add(new winston.transports.File({ format: format, filename: log_folder + 
 logger.add(new winston.transports.File({ format: format, filename: log_folder + "trace.log" }));
 logger.add(new winston.transports.Console({ format: format }));
 
-exports.logger = logger;
+export { logger };
