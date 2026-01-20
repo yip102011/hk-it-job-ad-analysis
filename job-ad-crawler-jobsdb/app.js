@@ -3,20 +3,10 @@ const { JSDOM } = jsdom;
 // const { data_helper } = require("./data_helper_mongo");
 const { data_helper } = require("./data_helper_sqlite");
 const { logger } = require("./logger_helper");
+const { chromium } = require("playwright");
 
 const http_headers = {
-  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "accept-language": "zh-TW,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6,zh-HK;q=0.5",
-  "cache-control": "max-age=0",
-  priority: "u=0, i",
-  "sec-ch-ua": '"Chromium";v="130", "Microsoft Edge";v="130", "Not?A_Brand";v="99"',
-  "sec-ch-ua-mobile": "?0",
-  "sec-ch-ua-platform": '"Windows"',
-  "sec-fetch-dest": "document",
-  "sec-fetch-mode": "navigate",
-  "sec-fetch-site": "same-origin",
-  "sec-fetch-user": "?1",
-  "upgrade-insecure-requests": "1",
+  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 };
 
 const fetch_options = {
@@ -170,59 +160,86 @@ async function extract_job_list(html_string) {
 
   return jobs;
 }
-async function fetch_job_detail(url) {
-  let response = await fetch(url, fetch_options);
-  let html_string = await response.text();
+async function fetch_job_detail(browser, url) {
+  try {
+    // Create a new context for each request to isolate sessions
+    const context = await browser.newContext({ 
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
+    
+    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+    let html_string = await page.content();
 
-  // try two time
-  if (response.status != 200) {
-    response = await fetch(url, fetch_options);
-    if (response.status != 200) {
+    if (!response.ok()) {
+      await context.close();
       return [null, null];
     }
+    await context.close();
+
+    let dom = new JSDOM(html_string);
+    let job_detail_ele = dom.window.document.querySelector('[data-automation="jobAdDetails"]');
+    let job_detail_html = job_detail_ele?.innerHTML;
+
+    let contact = extract_contact(job_detail_ele);
+
+    return [job_detail_html, contact];
+  } catch (error) {
+    logger.error("Error fetching job detail: " + error.message);
+    return [null, null];
   }
-
-  let dom = new JSDOM(html_string);
-  let job_detail_ele = dom.window.document.querySelector('[data-automation="jobAdDetails"]');
-  let job_detail_html = job_detail_ele?.innerHTML;
-
-  let contact = extract_contact(job_detail_ele);
-
-  return [job_detail_html, contact];
 }
-async function fetch_job_list(max_fetch_page, last_job_id) {
-  let full_job_list = [];
-  for (let page = 1; page <= max_fetch_page; page++) {
-    logger.info("fetching page " + page);
+async function fetch_job_list(browser, max_fetch_page, last_job_id) {
+  try {
+    let full_job_list = [];
+    const context = await browser.newContext({ 
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+    const page = await context.newPage();
+    
+    for (let pageNum = 1; pageNum <= max_fetch_page; pageNum++) {
+      logger.info("fetching page " + pageNum);
 
-    let url = `https://hk.jobsdb.com/jobs-in-information-communication-technology?page=${page}&sortmode=ListedDate`;
-    let response = await fetch(url, fetch_options);
-    if (response.status != 200) {
-      logger.info("fetching page " + page + " failed, status:" + response.status);
-      break;
+      let url = `https://hk.jobsdb.com/jobs-in-information-communication-technology?page=${pageNum}&sortmode=ListedDate`;
+      
+      try {
+        const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+        if (!response.ok()) {
+          logger.info("fetching page " + pageNum + " failed, status:" + response.status());
+          break;
+        }
+
+        let html_string = await page.content();
+        let jobs_list = await extract_job_list(html_string);
+        full_job_list = full_job_list.concat(jobs_list);
+
+        // if jobs list included last_job_id, break
+        // let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
+        // if (existed_job) {
+        //   logger.info("stop at page " + pageNum + ", job_id exsited - " + existed_job.job_id);
+        //   // break;
+        // }
+        await page.waitForTimeout(2000);
+      } catch (pageError) {
+        logger.error("Error on page " + pageNum + ": " + pageError.message);
+        break;
+      }
     }
-
-    let html_string = await response.text();
-    let jobs_list = await extract_job_list(html_string);
-    full_job_list = full_job_list.concat(jobs_list);
-
-    // if jobs list included last_job_id, break
-    let existed_job = jobs_list.find((job) => job.job_id === last_job_id);
-    if (existed_job) {
-      logger.info("stop at page " + page + ", job_id exsited - " + existed_job.job_id);
-      // break;
-    }
+    await context.close();
+    return full_job_list;
+  } catch (error) {
+    logger.error("Error in fetch_job_list: " + error.message);
+    return [];
   }
-  return full_job_list;
 }
 
-async function fetch_job_list_detail(jobs) {
+async function fetch_job_list_detail(browser, jobs) {
   // loop job and fetch detail
   let job_detail_promise_list = [];
   for (let i = 0; i < jobs.length; i++) {
     let job_detail_promise = (async () => {
       let url = "https://hk.jobsdb.com" + jobs[i].job_link;
-      let [job_detail_html, contact] = await fetch_job_detail(url);
+      let [job_detail_html, contact] = await fetch_job_detail(browser, url);
       jobs[i].job_detail_html = job_detail_html;
       jobs[i].contact = contact;
       jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
@@ -248,17 +265,21 @@ function split_array(arr, size) {
   let start_ms = performance.now();
   logger.info("start at " + get_now());
   logger.info("APP_ENV: " + process.env.APP_ENV);
+  let browser;
 
   try {
     await data_helper.init_db_client();
-
+    // Use the same approach that worked in PoC
+    browser = await chromium.launch({ 
+      headless: true
+    });
     let last_job_id = await data_helper.get_last_job_id();
     logger.info("last_job_id: " + last_job_id);
 
-    let max_fetch_page = process.env.MAX_FETCH_PAGE || 10;
+    let max_fetch_page = process.env.MAX_FETCH_PAGE || 2;
     logger.info("max_fetch_page: " + max_fetch_page);
 
-    let fetched_jobs = await fetch_job_list(max_fetch_page, last_job_id);
+    let fetched_jobs = await fetch_job_list(browser, max_fetch_page, last_job_id);
     logger.info("fetched jobs length: " + fetched_jobs.length);
 
     let existed_job_id_list = await data_helper.get_existed_job_id_list(fetched_jobs);
@@ -269,7 +290,7 @@ function split_array(arr, size) {
       return;
     }
 
-    let new_jobs_with_detail = await fetch_job_list_detail(new_jobs);
+    let new_jobs_with_detail = await fetch_job_list_detail(browser, new_jobs);
     logger.info("fetched all detail");
 
     logger.info("reverse jobs list");
@@ -291,6 +312,13 @@ function split_array(arr, size) {
     logger.error("program error", error);
   } finally {
     logger.info("close database client");
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        logger.error("Error closing browser: " + closeError.message);
+      }
+    }
     await data_helper?.close();
     let during_s = ((performance.now() - start_ms) / 1000).toFixed(2);
     logger.info("end at " + get_now() + ", during " + during_s + "s");
