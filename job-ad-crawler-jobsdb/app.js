@@ -91,7 +91,7 @@ async function save_jobs_to_file(jobs) {
   try {
     let json_string = JSON.stringify(jobs, null, 2);
     await fs.writeFile(`${path}jobsdb_${get_now()}.json`, json_string, "utf-8");
-  } catch (error) {}
+  } catch (error) { }
 }
 async function extract_job_list(html_string) {
   let dom = new JSDOM(html_string);
@@ -164,11 +164,11 @@ async function extract_job_list(html_string) {
 async function fetch_job_detail(browser, url) {
   try {
     // Create a new context for each request to isolate sessions
-    const context = await browser.newContext({ 
+    const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
     const page = await context.newPage();
-    
+
     const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
     let html_string = await page.content();
 
@@ -193,16 +193,16 @@ async function fetch_job_detail(browser, url) {
 async function fetch_job_list(browser, max_fetch_page, last_job_id) {
   try {
     let full_job_list = [];
-    const context = await browser.newContext({ 
+    const context = await browser.newContext({
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
     const page = await context.newPage();
-    
+
     for (let pageNum = 1; pageNum <= max_fetch_page; pageNum++) {
       logger.info("fetching page " + pageNum);
 
       let url = `https://hk.jobsdb.com/jobs-in-information-communication-technology?page=${pageNum}&sortmode=ListedDate`;
-      
+
       try {
         const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
         if (!response.ok()) {
@@ -269,12 +269,12 @@ function split_array(arr, size) {
   let browser;
 
   try {
-    await data_helper.init_db_client();
+    data_helper.init_db_client();
     // Use the same approach that worked in PoC
-    browser = await chromium.launch({ 
+    browser = await chromium.launch({
       headless: true
     });
-    let last_job_id = await data_helper.get_last_job_id();
+    let last_job_id = data_helper.get_last_job_id();
     logger.info("last_job_id: " + last_job_id);
 
     let max_fetch_page = process.env.MAX_FETCH_PAGE || 2;
@@ -283,7 +283,7 @@ function split_array(arr, size) {
     let fetched_jobs = await fetch_job_list(browser, max_fetch_page, last_job_id);
     logger.info("fetched jobs length: " + fetched_jobs.length);
 
-    let existed_job_id_list = await data_helper.get_existed_job_id_list(fetched_jobs);
+    let existed_job_id_list = data_helper.get_existed_job_id_list(fetched_jobs);
 
     let new_jobs = fetched_jobs.filter((job) => existed_job_id_list.includes(job.job_id) == false);
     logger.info("new jobs length: " + new_jobs.length);
@@ -303,12 +303,13 @@ function split_array(arr, size) {
     logger.info("insert many into database");
 
     const MAX_INSERT_SIZE = 30;
-    const inserted = 0;
-    split_array(reversed_jobs, MAX_INSERT_SIZE).forEach(async (jobs) => {
-      inserted = inserted + await data_helper.insert_many(jobs);
+    let totalInserted = 0;
+    split_array(reversed_jobs, MAX_INSERT_SIZE).forEach((jobs) => {
+      const inserted = data_helper.insert_many(jobs);
+      totalInserted += inserted;
     });
-    
-    logger.info(`${inserted} jobs were inserted`);
+
+    logger.info(`${totalInserted} jobs were inserted`);
   } catch (error) {
     logger.error("program error", error);
   } finally {
@@ -320,7 +321,7 @@ function split_array(arr, size) {
         logger.error("Error closing browser: " + closeError.message);
       }
     }
-    await data_helper?.close();
+    data_helper?.close();
     let during_s = ((performance.now() - start_ms) / 1000).toFixed(2);
     logger.info("end at " + get_now() + ", during " + during_s + "s");
     logger.info("----------------------------------------");
