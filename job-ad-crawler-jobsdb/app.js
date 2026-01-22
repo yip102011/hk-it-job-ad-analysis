@@ -162,32 +162,51 @@ async function extract_job_list(html_string) {
   return jobs;
 }
 async function fetch_job_detail(browser, url) {
-  try {
-    // Create a new context for each request to isolate sessions
-    const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const page = await context.newPage();
+  const maxRetries = 3;
 
-    const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
-    let html_string = await page.content();
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Create a new context for each request to isolate sessions
+      const context = await browser.newContext({
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      });
+      const page = await context.newPage();
 
-    if (!response.ok()) {
+      const response = await page.goto(url, { waitUntil: "networkidle", timeout: 30000 });
+      let html_string = await page.content();
+
+      if (!response.ok()) {
+        await context.close();
+        if (attempt < maxRetries) {
+          logger.warn(`Attempt ${attempt} failed for ${url}, status: ${response.status()}, retrying...`);
+          await delay(2000 * attempt); // Exponential backoff
+          continue;
+        }
+        return [null, null];
+      }
       await context.close();
-      return [null, null];
+
+      let dom = new JSDOM(html_string);
+      let job_detail_ele = dom.window.document.querySelector('[data-automation="jobAdDetails"]');
+      let job_detail_html = job_detail_ele?.innerHTML;
+
+      let contact = extract_contact(job_detail_ele);
+
+      return [job_detail_html, contact];
+    } catch (error) {
+      await context?.close().catch(() => {}); // Close context if it exists
+
+      if (attempt < maxRetries) {
+        logger.warn(`Attempt ${attempt} failed for ${url}: ${error.message}, retrying...`);
+        await delay(2000 * attempt); // Exponential backoff
+      } else {
+        logger.error("Error fetching job detail after " + maxRetries + " attempts: " + error.message);
+      }
+
+      if (attempt >= maxRetries) {
+        return [null, null];
+      }
     }
-    await context.close();
-
-    let dom = new JSDOM(html_string);
-    let job_detail_ele = dom.window.document.querySelector('[data-automation="jobAdDetails"]');
-    let job_detail_html = job_detail_ele?.innerHTML;
-
-    let contact = extract_contact(job_detail_ele);
-
-    return [job_detail_html, contact];
-  } catch (error) {
-    logger.error("Error fetching job detail: " + error.message);
-    return [null, null];
   }
 }
 async function fetch_job_list(browser, max_fetch_page, last_job_id) {
@@ -243,7 +262,7 @@ async function fetch_job_list_detail(browser, jobs) {
       let [job_detail_html, contact] = await fetch_job_detail(browser, url);
       jobs[i].job_detail_html = job_detail_html;
       jobs[i].contact = contact;
-      jobs[i].job_detail_html_fetched = job_detail_html ? true : false;
+      jobs[i].job_detail_html_fetched = job_detail_html ? 1 : 0;
     })();
     job_detail_promise_list.push(job_detail_promise);
     await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 1000);
@@ -291,14 +310,19 @@ function split_array(arr, size) {
       return;
     }
 
+    let max_fetch_jobs_details = process.env.MAX_FETCH_JOB_DETAIL || 99999;
+    if (new_jobs.length > max_fetch_jobs_details) {
+      new_jobs = new_jobs.slice(0, max_fetch_jobs_details);
+    }
+
     let new_jobs_with_detail = await fetch_job_list_detail(browser, new_jobs);
     logger.info("fetched all detail");
 
     logger.info("reverse jobs list");
     let reversed_jobs = new_jobs_with_detail.reverse();
 
-    logger.info("save jobs to file");
-    await save_jobs_to_file(reversed_jobs);
+    // logger.info("save jobs to file");
+    // await save_jobs_to_file(reversed_jobs);
 
     logger.info("insert many into database");
 

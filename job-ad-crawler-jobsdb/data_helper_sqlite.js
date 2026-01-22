@@ -1,4 +1,5 @@
-import { DatabaseSync, DatabaseSyncOptions } from 'node:sqlite';
+import { DatabaseSync } from 'node:sqlite';
+import { logger } from "./logger_helper.js";
 
 class data_helper_sqlite {
   init_db_client() {
@@ -6,7 +7,7 @@ class data_helper_sqlite {
     if (!db_path) {
       throw new Error("env var OUTPUT_SQLITE_DB_FILE is not defined");
     }
-    this.db = new DatabaseSync(db_path, new DatabaseSyncOptions());
+    this.db = new DatabaseSync(db_path);
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS jobsdb_ad (
@@ -77,13 +78,18 @@ class data_helper_sqlite {
       job.contact,
       job.job_detail_html,
       job.job_detail_html_fetched,
-    ]);
+    ]).map(v => v ?? "");
 
     let sql = "INSERT OR IGNORE INTO jobsdb_ad (job_id, job_id_text, job_title, job_link, company_name, company_link, location_1, location_2, salary, job_sub_category, job_category, job_desc_1, job_desc_2, job_desc_3, post_at, contact, job_detail_html, job_detail_html_fetched) VALUES " + placeholders;
 
-    const stmt = this.db.prepare(sql);
-    const result = stmt.run(...values);
-    return result.changes;
+    try {
+      const stmt = this.db.prepare(sql);
+      const result = stmt.run(...values);
+      return result.changes;
+    } catch (error) {
+      logger.error(error);
+      return 0;
+    }
   }
 
   close() {
