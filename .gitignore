@@ -133,3 +133,7 @@ dist
 .vscode/
 *.db
 jobs.json
+__pycache__
+jobsdb_jobs.csv
+jobsdb_jobs.json
+fetched_job_ids.txt
