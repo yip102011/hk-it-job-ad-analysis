@@ -134,6 +134,6 @@ dist
 *.db
 jobs.json
 __pycache__
-jobsdb_jobs.csv
-jobsdb_jobs.json
+*_jobs.csv
+*_jobs.json
 fetched_job_ids.txt

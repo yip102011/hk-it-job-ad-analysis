@@ -37,19 +37,22 @@ The fetched_job_ids.txt is also synced to R2 on every run
 Usage
 -----
     # default: 1 page of ICT jobs
-    python3 scraper_jobsdb.py
+    python scraper_jobsdb.py
 
     # 2 pages
-    python3 scraper_jobsdb.py --pages 2
+    python scraper_jobsdb.py --pages 2
 
     # 20 pages, upload to R2
-    python3 scraper_jobsdb.py --pages 20 --upload-r2
+    python scraper_jobsdb.py --pages 20 --upload-r2
 
     # page range
-    python3 scraper_jobsdb.py --pages 1-5
+    python scraper_jobsdb.py --pages 1-5
 
     # Different category
-    python3 scraper_jobsdb.py --category accounting
+    python scraper_jobsdb.py --category accounting
+
+    # limit detail fetches (useful for testing)
+    python scraper_jobsdb.py --max-jobs 5
 
 Dependencies
 ------------
@@ -476,7 +479,7 @@ class PlaywrightFetcher:
                 resp = page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
                 if resp is None or not resp.ok:
                     raise RuntimeError(
-                        f"HTTP {resp.status() if resp else 'no response'}"
+                        f"HTTP {resp.status if resp else 'no response'}"
                     )
                 if wait_selector:
                     try:
@@ -706,7 +709,7 @@ def main() -> int:
         help=f"Seconds between detail page fetches (default: {DETAIL_DELAY})",
     )
     p.add_argument(
-        "--format", choices=("csv", "json", "both"), default="both",
+        "--format", choices=("csv", "json", "both"), default="json",
         help="Output format (default: both).",
     )
     p.add_argument(

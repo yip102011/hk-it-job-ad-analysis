@@ -43,6 +43,9 @@ Usage
         --url https://jobs.ctgoodjobs.hk/jobs/jobs-in-banking-finance?page=1 \
         --pages 3 --output banking_jobs
 
+    # limit detail fetches (useful for testing)
+    python scraper_ctgoodjobs.py --max-jobs 5
+
 Dependencies
 ------------
     pip install requests boto3
@@ -417,6 +420,7 @@ def scrape(
     url: str,
     max_pages: int,
     delay: float,
+    max_jobs: int = 0,
 ) -> list[dict[str, Any]]:
     slug, jobcatarea_id = category_from_url(url)
     print(
@@ -473,6 +477,11 @@ def scrape(
 
         records.append(rec)
 
+        # Stop once the max-jobs quota is reached
+        if max_jobs > 0 and detail_fetched >= max_jobs:
+            print(f"  [quota] Reached max-jobs limit ({max_jobs}). Stopping.", file=sys.stderr)
+            break
+
     # Save updated fetched IDs
     if new_fetched_ids:
         all_ids = fetched_ids | new_fetched_ids
@@ -511,7 +520,7 @@ def main() -> int:
         help="Output file prefix (default: ctgoodjobs_jobs). Writes .csv and .json.",
     )
     p.add_argument(
-        "--format", choices=("csv", "json", "both"), default="both",
+        "--format", choices=("csv", "json", "both"), default="json",
         help="Output format (default: both).",
     )
     p.add_argument(
@@ -521,6 +530,10 @@ def main() -> int:
     p.add_argument(
         "--upload-r2", action="store_true",
         help="Upload JSON output to Cloudflare R2 (requires .env with R2 credentials).",
+    )
+    p.add_argument(
+        "--max-jobs", type=int, default=0,
+        help="Max number of detail pages to fetch (0 = unlimited). Useful for testing.",
     )
     p.add_argument(
         "--r2-prefix", default=R2_PREFIX,
@@ -536,6 +549,7 @@ def main() -> int:
         url=args.url,
         max_pages=args.pages,
         delay=args.delay,
+        max_jobs=args.max_jobs,
     )
 
     if not records:
@@ -544,10 +558,10 @@ def main() -> int:
 
     # Local save
     if args.format in ("json", "both"):
-        write_json(records, f"{args.output}.json")
+        write_json(records, f"{DATA_DIR}/{args.output}.json")
         print(f"Wrote {len(records)} records to {args.output}.json", file=sys.stderr)
     if args.format in ("csv", "both"):
-        write_csv(records, f"{args.output}.csv")
+        write_csv(records, f"{DATA_DIR}/{args.output}.csv")
         print(f"Wrote {len(records)} records to {args.output}.csv", file=sys.stderr)
 
     # R2 upload
