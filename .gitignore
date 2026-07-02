@@ -134,6 +134,5 @@ dist
 *.db
 jobs.json
 __pycache__
-*_jobs.csv
-*_jobs.json
 fetched_job_ids.txt
+scraper_data
