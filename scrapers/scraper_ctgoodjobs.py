@@ -47,7 +47,7 @@ Usage
     python scrapers\scraper_ctgoodjobs.py --pages 1-20 --upload-r2
 
     # limit detail fetches (useful for testing)
-    python scrapers\scraper_ctgoodjobs.py --max-jobs 3
+    python scrapers\scraper_ctgoodjobs.py --max-jobs 3 --upload-r2
 
 Dependencies
 ------------
@@ -55,7 +55,7 @@ Dependencies
 """
 
 from __future__ import annotations
-from r2_uploader import load_dotenv, upload_to_r2, download_from_r2
+from r2_uploader import load_dotenv, output_target, upload_to_r2, download_from_r2
 
 import argparse
 import csv
@@ -67,6 +67,7 @@ import time
 import random
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -153,6 +154,13 @@ def sync_fetched_ids_to_r2(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+
+def strip_html(html: str) -> str:
+    """Remove HTML tags, decode entities, collapse whitespace to single spaces."""
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
 
 def make_visitor_id() -> str:
     return "v" + time.strftime("%Y%m%d%H%M%S", time.gmtime()) + str(random.randint(10**8, 10**9 - 1))
@@ -268,6 +276,7 @@ class JobSummary:
 @dataclass
 class JobDetail:
     description_html: str
+    description: str
     company_description_html: str
     apply_url: str
     job_areas: list[dict[str, str]]
@@ -277,8 +286,10 @@ class JobDetail:
     def from_api(cls, raw: dict[str, Any]) -> "JobDetail":
         job = (raw.get("job") or {})
         job_info = (raw.get("jobInfo") or {})
+        description_html = job.get("content", "") or ""
         return cls(
-            description_html=job.get("content", "") or "",
+            description_html=description_html,
+            description=strip_html(description_html),
             company_description_html=job.get("companyDesc", "") or "",
             apply_url=job.get("applyUrl", "") or "",
             job_areas=list(job_info.get("jobareas") or []),
@@ -375,7 +386,7 @@ CSV_FIELDS = [
     "job_id", "job_title", "job_url", "company_id", "company_name", "company_url",
     "company_logo", "publish_display", "publish_date", "valid_through_date",
     "experience", "salary", "employment_types", "career_levels",
-    "highlights", "description_html", "company_description_html", "apply_url",
+    "highlights", "description_html", "description", "company_description_html", "apply_url",
     "job_areas", "skills",
 ]
 
@@ -406,6 +417,7 @@ def _empty_detail() -> dict[str, Any]:
     """Return empty detail fields for jobs where detail fetch failed."""
     return {
         "description_html": "",
+        "description": "",
         "company_description_html": "",
         "apply_url": "",
         "job_areas": [],
@@ -457,6 +469,7 @@ def scrape(
             detail = client.job_detail(job.job_id)
             rec.update({
                 "description_html": detail.description_html,
+                "description": detail.description,
                 "company_description_html": detail.company_description_html,
                 "apply_url": detail.apply_url,
                 "job_areas": [a for a in detail.job_areas],
@@ -556,35 +569,30 @@ def main() -> int:
         print("No new jobs collected.", file=sys.stderr)
         return 1
 
-    # Output paths. Local files live under the "data" root; the R2 key mirrors
-    # that path with the root stripped (the R2 bucket plays the role of "data").
-    # A YYYYMMDD run-date suffix is appended so each run is a separate file:
-    #   local: data/<source>/<output>_YYYYMMDD.json
-    #   R2:    <bucket>/<source>/<output>_YYYYMMDD.json
-    date_tag = datetime.now().strftime("%Y%m%d")
-    out_name = f"{args.output}_{date_tag}"
-    json_path = str(DATA_DIR / R2_PREFIX / f"{out_name}.json")
-    csv_path = str(DATA_DIR / R2_PREFIX / f"{out_name}.csv")
-    wrote_json = args.format in ("json", "both")
-    wrote_csv = args.format in ("csv", "both")
+    # One file per run, date-stamped. Local path and R2 key mirror each other
+    # via output_target (R2 key = local path with the data root stripped):
+    #   data/<source>/<output>_YYYYMMDD.<ext>  ↔  <bucket>/<source>/...
+    out_stem = f"{args.output}_{datetime.now():%Y%m%d}"
+    fmt = args.format
+    wrote_json = fmt in ("json", "both")
 
-    # Local save
+    json_path, json_r2 = output_target(DATA_DIR, args.r2_prefix, out_stem, "json")
     if wrote_json:
         write_json(records, json_path)
-        print(f"Wrote {len(records)} records to {out_name}.json",
+        print(f"Wrote {len(records)} records to {out_stem}.json",
               file=sys.stderr)
-    if wrote_csv:
+    if fmt in ("csv", "both"):
+        csv_path, _ = output_target(DATA_DIR, args.r2_prefix, out_stem, "csv")
         write_csv(records, csv_path)
-        print(f"Wrote {len(records)} records to {out_name}.csv",
+        print(f"Wrote {len(records)} records to {out_stem}.csv",
               file=sys.stderr)
 
-    # R2 upload — key mirrors the local JSON path with the "data" root stripped
+    # R2 upload — key mirrors the local path with the data root stripped.
     if args.upload_r2:
         if wrote_json:
-            r2_key = f"{args.r2_prefix}/{out_name}.json"
             try:
-                upload_to_r2(json_path, r2_key)
-                print(f"  ✓ Uploaded to R2: {r2_key}", file=sys.stderr)
+                upload_to_r2(json_path, json_r2)
+                print(f"  ✓ Uploaded to R2: {json_r2}", file=sys.stderr)
             except Exception as exc:
                 print(f"  ✗ R2 upload failed: {exc}", file=sys.stderr)
 

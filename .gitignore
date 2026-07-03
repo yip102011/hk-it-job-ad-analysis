@@ -137,3 +137,4 @@ __pycache__
 fetched_job_ids.txt
 scraper_data
 data
+models

@@ -150,6 +150,22 @@ def download_from_r2(
 
 
 # --------------------------------------------------------------------------- #
+# Output-path helpers (shared by scrapers)
+# --------------------------------------------------------------------------- #
+
+def output_target(
+    data_root: Path, source: str, stem: str, ext: str
+) -> tuple[str, str]:
+    """Local write path under <data_root>/<source>/ and the mirroring R2 key.
+
+    The R2 key is the local path with the data root stripped — the R2 bucket
+    plays the role of <data_root>. Built once so the two can never drift.
+    """
+    fname = f"{stem}.{ext}"
+    return str(data_root / source / fname), f"{source}/{fname}"
+
+
+# --------------------------------------------------------------------------- #
 # Standalone CLI
 # --------------------------------------------------------------------------- #
 
