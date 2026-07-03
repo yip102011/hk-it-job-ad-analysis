@@ -136,3 +136,4 @@ jobs.json
 __pycache__
 fetched_job_ids.txt
 scraper_data
+data

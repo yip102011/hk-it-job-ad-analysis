@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 scraper_ctgoodjobs.py — collect job ads from CTgoodjobs.hk
 
 What it does
@@ -24,27 +24,30 @@ This avoids re-fetching and keeps the daily output containing only new jobs.
 R2 upload
 =========
 With ``--upload-r2``, the JSON output is uploaded to:
-    <R2_BUCKET>/<r2-prefix>/<YYYY-MM-DD>.json
-e.g.  my-bucket/ctgoodjobs/2025-06-15.json
+    <R2_BUCKET>/<r2-prefix>/<output>_YYYYMMDD.json
+e.g.  hk-it-job-ad/ctgoodjobs/ctgoodjobs_jobs_20260703.json
+
+The R2 key mirrors the local path under the ``data`` root — the bucket
+plays the role of ``data``:
+    local: data/ctgoodjobs/ctgoodjobs_jobs_YYYYMMDD.json
+    R2:    <bucket>/ctgoodjobs/ctgoodjobs_jobs_YYYYMMDD.json
 
 The fetched_job_ids.txt is also synced to R2 on every run
 (download before, upload after).
 
 Usage
 -----
-    # default: 1 page of IT jobs
-    python scraper_ctgoodjobs.py
+    # default: 1 page
+    python scrapers\scraper_ctgoodjobs.py
+
+    # page range
+    python scrapers\scraper_ctgoodjobs.py --pages 1-20
 
     # 20 pages, upload to R2
-    python scraper_ctgoodjobs.py --pages 20 --upload-r2
-
-    # Custom category
-    python scraper_ctgoodjobs.py \
-        --url https://jobs.ctgoodjobs.hk/jobs/jobs-in-banking-finance?page=1 \
-        --pages 3 --output banking_jobs
+    python scrapers\scraper_ctgoodjobs.py --pages 1-20 --upload-r2
 
     # limit detail fetches (useful for testing)
-    python scraper_ctgoodjobs.py --max-jobs 5
+    python scrapers\scraper_ctgoodjobs.py --max-jobs 3
 
 Dependencies
 ------------
@@ -52,6 +55,7 @@ Dependencies
 """
 
 from __future__ import annotations
+from r2_uploader import load_dotenv, upload_to_r2, download_from_r2
 
 import argparse
 import csv
@@ -62,7 +66,7 @@ import sys
 import time
 import random
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 from urllib.parse import urlparse
@@ -72,7 +76,6 @@ import requests
 # ── Local imports ────────────────────────────────────────────────────────────
 _SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPT_DIR))
-from r2_uploader import load_dotenv, upload_to_r2, download_from_r2
 
 
 # --------------------------------------------------------------------------- #
@@ -83,15 +86,7 @@ CATEGORIES: dict[str, dict[str, str]] = {
     "information-technology": {
         "jobcatareaId": "021",
         "name": "Information Technology",
-    },
-    "banking-finance": {
-        "jobcatareaId": "010",
-        "name": "Banking / Finance",
-    },
-    "sales-cs-business-devpt": {
-        "jobcatareaId": "018",
-        "name": "Sales, CS & Business Devpt",
-    },
+    }
 }
 
 SEARCH_URL = "https://api01.ctgoodjobs.hk/job/api/jobs/search"
@@ -100,19 +95,19 @@ PAGE_SIZE = 30
 DEFAULT_CHANNEL_ID = "001"
 DEFAULT_LANG = "en-US"
 
-# Data directory for persistent state
-DATA_DIR = _SCRIPT_DIR / "scraper_data" / "ctgoodjobs"
-FETCHED_IDS_FILE = DATA_DIR / "fetched_job_ids.txt"
-
 # R2 folder prefix
 R2_PREFIX = "ctgoodjobs"
+
+# Data directory for persistent state
+DATA_DIR = _SCRIPT_DIR / ".." / "data"
+LOCAL_IDS_FILE = DATA_DIR / R2_PREFIX / "fetched_job_ids.txt"
 
 
 # --------------------------------------------------------------------------- #
 # Fetched-job-ID tracking
 # --------------------------------------------------------------------------- #
 
-def load_fetched_ids(path: Path = FETCHED_IDS_FILE) -> set[str]:
+def load_fetched_ids(path: Path = LOCAL_IDS_FILE) -> set[str]:
     """Read previously-fetched job IDs from file.  Returns an empty set on miss."""
     if not path.exists():
         return set()
@@ -120,7 +115,7 @@ def load_fetched_ids(path: Path = FETCHED_IDS_FILE) -> set[str]:
         return {line.strip() for line in fh if line.strip()}
 
 
-def save_fetched_ids(ids: set[str], path: Path = FETCHED_IDS_FILE) -> None:
+def save_fetched_ids(ids: set[str], path: Path = LOCAL_IDS_FILE) -> None:
     """Write the full set of fetched job IDs to file (one per line)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
@@ -130,18 +125,19 @@ def save_fetched_ids(ids: set[str], path: Path = FETCHED_IDS_FILE) -> None:
 
 
 def sync_fetched_ids_from_r2(
-    path: Path = FETCHED_IDS_FILE, r2_prefix: str = R2_PREFIX
+    path: Path = LOCAL_IDS_FILE, r2_prefix: str = R2_PREFIX
 ) -> None:
     """Download fetched_job_ids.txt from R2 if it exists (so state persists across machines)."""
     try:
         r2_key = f"{r2_prefix}/fetched_job_ids.txt"
         download_from_r2(r2_key, str(path))
     except Exception as exc:
-        print(f"  [R2] Could not sync fetched IDs from R2: {exc}", file=sys.stderr)
+        print(
+            f"  [R2] Could not sync fetched IDs from R2: {exc}", file=sys.stderr)
 
 
 def sync_fetched_ids_to_r2(
-    path: Path = FETCHED_IDS_FILE, r2_prefix: str = R2_PREFIX
+    path: Path = LOCAL_IDS_FILE, r2_prefix: str = R2_PREFIX
 ) -> None:
     """Upload fetched_job_ids.txt to R2 after a run."""
     if not path.exists():
@@ -150,7 +146,8 @@ def sync_fetched_ids_to_r2(
         r2_key = f"{r2_prefix}/fetched_job_ids.txt"
         upload_to_r2(str(path), r2_key)
     except Exception as exc:
-        print(f"  [R2] Could not sync fetched IDs to R2: {exc}", file=sys.stderr)
+        print(
+            f"  [R2] Could not sync fetched IDs to R2: {exc}", file=sys.stderr)
 
 
 # --------------------------------------------------------------------------- #
@@ -390,7 +387,8 @@ def write_json(records: list[dict[str, Any]], path: str) -> None:
 
 def write_csv(records: list[dict[str, Any]], path: str) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=CSV_FIELDS, extrasaction="ignore")
+        writer = csv.DictWriter(
+            fh, fieldnames=CSV_FIELDS, extrasaction="ignore")
         writer.writeheader()
         for r in records:
             row = dict(r)
@@ -432,7 +430,8 @@ def scrape(
     # Load previously-fetched IDs — jobs in this list are skipped entirely
     fetched_ids: set[str] = load_fetched_ids()
     new_fetched_ids: set[str] = set()
-    print(f"  [ids] {len(fetched_ids)} previously-fetched IDs loaded", file=sys.stderr)
+    print(
+        f"  [ids] {len(fetched_ids)} previously-fetched IDs loaded", file=sys.stderr)
 
     client = CTGoodJobsClient()
     records: list[dict[str, Any]] = []
@@ -479,7 +478,8 @@ def scrape(
 
         # Stop once the max-jobs quota is reached
         if max_jobs > 0 and detail_fetched >= max_jobs:
-            print(f"  [quota] Reached max-jobs limit ({max_jobs}). Stopping.", file=sys.stderr)
+            print(
+                f"  [quota] Reached max-jobs limit ({max_jobs}). Stopping.", file=sys.stderr)
             break
 
     # Save updated fetched IDs
@@ -556,24 +556,37 @@ def main() -> int:
         print("No new jobs collected.", file=sys.stderr)
         return 1
 
-    # Local save
-    if args.format in ("json", "both"):
-        write_json(records, f"{DATA_DIR}/{args.output}.json")
-        print(f"Wrote {len(records)} records to {args.output}.json", file=sys.stderr)
-    if args.format in ("csv", "both"):
-        write_csv(records, f"{DATA_DIR}/{args.output}.csv")
-        print(f"Wrote {len(records)} records to {args.output}.csv", file=sys.stderr)
+    # Output paths. Local files live under the "data" root; the R2 key mirrors
+    # that path with the root stripped (the R2 bucket plays the role of "data").
+    # A YYYYMMDD run-date suffix is appended so each run is a separate file:
+    #   local: data/<source>/<output>_YYYYMMDD.json
+    #   R2:    <bucket>/<source>/<output>_YYYYMMDD.json
+    date_tag = datetime.now().strftime("%Y%m%d")
+    out_name = f"{args.output}_{date_tag}"
+    json_path = str(DATA_DIR / R2_PREFIX / f"{out_name}.json")
+    csv_path = str(DATA_DIR / R2_PREFIX / f"{out_name}.csv")
+    wrote_json = args.format in ("json", "both")
+    wrote_csv = args.format in ("csv", "both")
 
-    # R2 upload
+    # Local save
+    if wrote_json:
+        write_json(records, json_path)
+        print(f"Wrote {len(records)} records to {out_name}.json",
+              file=sys.stderr)
+    if wrote_csv:
+        write_csv(records, csv_path)
+        print(f"Wrote {len(records)} records to {out_name}.csv",
+              file=sys.stderr)
+
+    # R2 upload — key mirrors the local JSON path with the "data" root stripped
     if args.upload_r2:
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        json_path = f"{args.output}.json"
-        r2_key = f"{args.r2_prefix}/{today}.json"
-        try:
-            upload_to_r2(json_path, r2_key)
-            print(f"  ✓ Uploaded to R2: {r2_key}", file=sys.stderr)
-        except Exception as exc:
-            print(f"  ✗ R2 upload failed: {exc}", file=sys.stderr)
+        if wrote_json:
+            r2_key = f"{args.r2_prefix}/{out_name}.json"
+            try:
+                upload_to_r2(json_path, r2_key)
+                print(f"  ✓ Uploaded to R2: {r2_key}", file=sys.stderr)
+            except Exception as exc:
+                print(f"  ✗ R2 upload failed: {exc}", file=sys.stderr)
 
         # Sync fetched IDs back to R2
         sync_fetched_ids_to_r2(r2_prefix=args.r2_prefix)
