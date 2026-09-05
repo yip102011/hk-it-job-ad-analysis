@@ -241,6 +241,7 @@ async function fetch_job_list(context, max_fetch_page, last_job_id) {
       } catch (pageError) {
         logger.error("Error on page " + pageNum + ": " + pageError.message);
       }
+    await delay(process.env.DELAY_BETWEEN_FETCH_PAGE || 3000);
     }
     return full_job_list;
   } catch (error) {
@@ -258,7 +259,7 @@ async function fetch_job_list_detail(context, jobs) {
     jobs[i].job_detail_html = job_detail_html;
     jobs[i].contact = contact;
     jobs[i].job_detail_html_fetched = job_detail_html ? 1 : 0;
-    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 1000);
+    await delay(process.env.DELAY_BETWEEN_FETCH_DETAIL || 2000);
   }
   return jobs;
 }
